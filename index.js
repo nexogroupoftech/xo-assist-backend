@@ -1,30 +1,35 @@
 import express from "express";
-import fetch from "node-fetch";
 import cors from "cors";
 import dotenv from "dotenv";
+import fetch from "node-fetch";
 
 dotenv.config();
 
 const app = express();
-
-app.use(cors());
+app.use(cors({ origin: "*" }));
 app.use(express.json());
 
-// ✅ Health check (optional)
+const PORT = process.env.PORT || 8080;
+
+/* Health check */
 app.get("/", (req, res) => {
-  res.send("XO Assist backend is running");
+  res.send("XO Assist backend is running 🚀");
 });
 
-// ✅ MAIN AI ROUTE
+/* Ask AI */
 app.post("/ask", async (req, res) => {
-  const { prompt } = req.body;
-
-  if (!prompt) {
-    return res.status(400).json({ error: "No prompt provided" });
-  }
-
   try {
-    const response = await fetch(
+    const { prompt } = req.body;
+
+    if (!prompt) {
+      return res.status(400).json({ error: "No prompt provided" });
+    }
+
+    if (!process.env.GROQ_API_KEY) {
+      return res.status(500).json({ error: "Missing GROQ_API_KEY" });
+    }
+
+    const groqResponse = await fetch(
       "https://api.groq.com/openai/v1/chat/completions",
       {
         method: "POST",
@@ -38,41 +43,38 @@ app.post("/ask", async (req, res) => {
             {
               role: "system",
               content:
-                "Explain the text simply. If it is a word, give meaning and a short example. Keep it clear and short."
+                "Explain the text simply. If it is a word, give meaning and example."
             },
             {
               role: "user",
               content: prompt
             }
-          ],
-          temperature: 0.4
+          ]
         })
       }
     );
 
-    const data = await response.json();
+    const data = await groqResponse.json();
 
-    if (!response.ok) {
+    // SAFE CHECK (prevents server crash)
+    if (!data.choices || !data.choices[0]) {
+      console.error("Groq API error:", data);
       return res.status(500).json({
-        error: "Groq API error",
+        error: "Groq API failed",
         details: data
       });
     }
 
-    res.json({
-      answer: data.choices[0].message.content
-    });
+    const answer = data.choices[0].message.content;
+
+    res.json({ answer });
 
   } catch (err) {
-    res.status(500).json({
-      error: "AI failed",
-      details: err.message
-    });
+    console.error("Backend crash:", err);
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
-const PORT = process.env.PORT || 3000;
-
 app.listen(PORT, () => {
-  console.log(`Backend running on http://localhost:${PORT}`);
+  console.log("Backend running on port", PORT);
 });
